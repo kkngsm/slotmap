@@ -372,6 +372,54 @@ impl<K: Key, V> SlotMap<K, V> {
         unsafe { self.try_insert_with_key::<_, Never>(move |k| Ok(f(k))).unwrap_unchecked_() }
     }
 
+    /// Inserts a value at the key location in the slot map. If the location already has a value,
+    /// return the corresponding key and its value.
+    ///
+    /// This is useful to bring the state back to.
+    ///
+    /// # Examples
+    ///```
+    /// # use slotmap::*;
+    /// let mut sm = SlotMap::new();
+    /// let foo = sm.insert("foo");
+    /// assert_eq!(sm[foo], "foo");
+    ///
+    /// // bar is inserted in the place of foo
+    /// sm.remove(foo);
+    /// let bar = sm.insert("bar");
+    /// assert_eq!(sm[bar], "bar");
+    ///
+    /// // Inserting the foo key and value returns the bar that was already there
+    /// let prev_foo = sm.insert_key_value(foo, "foo");
+    /// assert_eq!(sm[foo], "foo");
+    /// assert_eq!(prev_foo, Some((bar, "bar")));
+    ///
+    /// // If empty, None is returned.
+    /// sm.remove(foo);
+    /// let prev_bar = sm.insert_key_value(bar, "bar");
+    /// assert_eq!(sm[bar], "bar");
+    /// assert_eq!(prev_bar, None);
+    /// ```
+    /// # use slotmap::*;
+    #[inline(always)]
+    pub fn insert_key_value(&mut self, key: K, value: V) -> Option<(K, V)> {
+        let kd = key.data();
+        let slot = Slot {
+            u: SlotUnion {
+                value: ManuallyDrop::new(value),
+            },
+            version: kd.version.into(),
+        };
+        let mut prev_value = std::mem::replace(&mut self.slots[kd.idx as usize], slot);
+        if self.free_head != kd.idx {
+            Some((KeyData::new(kd.idx, prev_value.version).into(), unsafe {
+                ManuallyDrop::take(&mut prev_value.u.value)
+            }))
+        } else {
+            None
+        }
+    }
+
     /// Inserts a value given by `f` into the slot map. The key where the
     /// value will be stored is passed into `f`. This is useful to store values
     /// that contain their own key.
