@@ -410,12 +410,16 @@ impl<K: Key, V> SlotMap<K, V> {
             },
             version: kd.version.into(),
         };
-        let mut prev_value = std::mem::replace(&mut self.slots[kd.idx as usize], slot);
+
+        // inserting new slot returns a slot that was already there
+        let mut prev_slot = std::mem::replace(&mut self.slots[kd.idx as usize], slot);
         if self.free_head != kd.idx {
-            Some((KeyData::new(kd.idx, prev_value.version).into(), unsafe {
-                ManuallyDrop::take(&mut prev_value.u.value)
+            Some((KeyData::new(kd.idx, prev_slot.version).into(), unsafe {
+                ManuallyDrop::take(&mut prev_slot.u.value)
             }))
         } else {
+            // if previous slot is empty, return None.
+            self.num_elems += 1;
             None
         }
     }
